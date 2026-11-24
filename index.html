@@ -1,0 +1,667 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>圣诞夜 · 八岁</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: #07080a; color: #cfc9bf;
+    font-family: Georgia, "Songti SC", "SimSun", serif;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px; line-height: 1.9;
+    position: relative; overflow-x: hidden;
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.75) 100%);
+    animation: breathe 9s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100%{opacity:.72} 50%{opacity:.92} }
+  #game { width: 100%; max-width: 680px; position: relative; z-index: 1; }
+  #meta {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 26px; font-size: 12px; letter-spacing: 2px;
+    color: #6f6a60;
+  }
+  #noise { display: flex; align-items: center; gap: 8px; transition: opacity .6s; }
+  #noisebar { width: 84px; height: 3px; background: #1c1e22; border-radius: 2px; overflow: hidden; }
+  #noisefill { height: 100%; width: 0%; background: linear-gradient(90deg,#5e5648,#8a5a4a); transition: width .5s ease; }
+  #mute {
+    background: transparent; border: 1px solid #2b2e33; color: #6f6a60;
+    font-family: inherit; font-size: 11px; letter-spacing: 1px;
+    padding: 4px 8px; cursor: pointer; transition: .3s;
+  }
+  #mute:hover { color: #cfc9bf; border-color: #6f6a60; }
+  #text p { opacity: 0; transform: translateY(4px); margin: 0 0 14px; animation: rise .8s ease forwards; font-size: 17px; }
+  #text p:empty { height: 8px; }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  #choices { margin-top: 30px; display: flex; flex-direction: column; gap: 10px; }
+  .choice {
+    background: transparent; border: 1px solid #2b2e33; color: #cfc9bf;
+    padding: 13px 18px; font-family: inherit; font-size: 15px;
+    text-align: left; cursor: pointer; transition: border-color .3s, background .3s, color .3s;
+    opacity: 0; animation: rise .6s ease forwards;
+  }
+  .choice:hover { border-color: #6f6a60; background: #111316; color: #e6dfd2; }
+  .ending-title { font-size: 22px; letter-spacing: 4px; color: #b8a98f; margin-bottom: 26px; opacity: 0; animation: rise 1s ease forwards; }
+  #intro {
+    position: fixed; inset: 0; background: #07080a; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 24px; transition: opacity 1s;
+  }
+  #intro h1 { font-size: 26px; letter-spacing: 6px; color: #b8a98f; margin-bottom: 18px; font-weight: normal; }
+  #intro p { font-size: 13px; color: #6f6a60; letter-spacing: 1px; margin-bottom: 36px; line-height: 2; }
+  #intro button {
+    background: transparent; border: 1px solid #3a3d43; color: #cfc9bf;
+    padding: 12px 36px; font-family: inherit; font-size: 15px; letter-spacing: 4px;
+    cursor: pointer; transition: .3s;
+  }
+  #intro button:hover { border-color: #8a8378; color: #e6dfd2; }
+</style>
+</head>
+<body>
+
+<div id="intro">
+  <h1>圣诞夜 · 八岁</h1>
+  <p>建议戴耳机。<br>声音会很小，但会一直在。</p>
+  <button id="startBtn">开 始</button>
+</div>
+
+<div id="game">
+  <div id="meta">
+    <span id="chapter"></span>
+    <div style="display:flex;align-items:center;gap:14px">
+      <div id="noise"><span>声音</span><div id="noisebar"><div id="noisefill"></div></div></div>
+      <button id="mute">静音</button>
+    </div>
+  </div>
+  <div id="text"></div>
+  <div id="choices"></div>
+</div>
+
+<script>
+/* ============ 音频引擎 ============ */
+let ctx = null, master = null, started = false, muted = false, tensionGain = null;
+
+function initAudio() {
+  if (ctx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  ctx = new AC();
+  master = ctx.createGain();
+  master.gain.value = 0.7;
+  master.connect(ctx.destination);
+}
+
+function now() { return ctx.currentTime; }
+
+function noiseBuffer(dur) {
+  const len = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
+
+function startAmbient() {
+  if (started || !ctx) return;
+  started = true;
+
+  // 低频底噪（房间的呼吸）
+  const droneGain = ctx.createGain(); droneGain.gain.value = 0.025;
+  droneGain.connect(master);
+  const o1 = ctx.createOscillator(); o1.type = 'sine'; o1.frequency.value = 55;
+  const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = 55.6;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+  o1.connect(lp); o2.connect(lp); lp.connect(droneGain);
+  o1.start(); o2.start();
+
+  // 缓慢起伏
+  const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.07;
+  const lfoG = ctx.createGain(); lfoG.gain.value = 0.01;
+  lfo.connect(lfoG); lfoG.connect(droneGain.gain); lfo.start();
+
+  // 房间底噪
+  const room = ctx.createBufferSource(); room.buffer = noiseBuffer(4); room.loop = true;
+  const rf = ctx.createBiquadFilter(); rf.type = 'lowpass'; rf.frequency.value = 260;
+  const rg = ctx.createGain(); rg.gain.value = 0.006;
+  room.connect(rf); rf.connect(rg); rg.connect(master); room.start();
+
+  // 紧张低频（随声音条）
+  const to = ctx.createOscillator(); to.type = 'sawtooth'; to.frequency.value = 41;
+  const tf = ctx.createBiquadFilter(); tf.type = 'lowpass'; tf.frequency.value = 120;
+  tensionGain = ctx.createGain(); tensionGain.gain.value = 0;
+  to.connect(tf); tf.connect(tensionGain); tensionGain.connect(master); to.start();
+}
+
+function setTension(level) {
+  if (!ctx || !tensionGain) return;
+  const target = Math.min(level / 4, 1) * 0.05;
+  tensionGain.gain.linearRampToValueAtTime(target, ctx.currentTime + 0.6);
+}
+
+function thump(vol, freqStart, freqEnd, dur, lpFreq) {
+  if (!ctx) return;
+  const t = now();
+  const o = ctx.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(freqStart, t);
+  o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur + 0.15);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.2);
+
+  const n = ctx.createBufferSource(); n.buffer = noiseBuffer(0.2);
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lpFreq || 400;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(vol * 0.5, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+  n.connect(f); f.connect(ng); ng.connect(master); n.start(t); n.stop(t + 0.2);
+}
+
+function distanceThud() { thump(0.3, 70, 35, 0.22, 220); }
+
+function footsteps(count, vol) {
+  if (!ctx) return;
+  let t = now();
+  for (let i = 0; i < count; i++) {
+    const n = ctx.createBufferSource(); n.buffer = noiseBuffer(0.12);
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 600;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol * (0.6 + Math.random() * 0.4), t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    n.connect(f); f.connect(g); g.connect(master); n.start(t); n.stop(t + 0.12);
+    t += 0.5 + Math.random() * 0.15;
+  }
+}
+
+function creak() {
+  if (!ctx) return;
+  const t = now();
+  const o = ctx.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(170, t);
+  o.frequency.linearRampToValueAtTime(130, t + 0.5);
+  o.frequency.linearRampToValueAtTime(190, t + 0.95);
+  const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 750; f.Q.value = 7;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.06, t + 0.1);
+  g.gain.linearRampToValueAtTime(0.04, t + 0.7);
+  g.gain.linearRampToValueAtTime(0, t + 1.05);
+  o.connect(f); f.connect(g); g.connect(master); o.start(t); o.stop(t + 1.1);
+}
+
+function heartbeat(vol) {
+  if (!ctx) return;
+  const t0 = now();
+  [0, 0.17].forEach((off, i) => {
+    const t = t0 + off;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(62, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + 0.12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol * (i ? 0.55 : 1), t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.2);
+  });
+}
+
+function breath() {
+  if (!ctx) return;
+  const t = now();
+  const n = ctx.createBufferSource(); n.buffer = noiseBuffer(1.3);
+  const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 850; f.Q.value = 1.4;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.035, t + 0.3);
+  g.gain.linearRampToValueAtTime(0.015, t + 0.8);
+  g.gain.linearRampToValueAtTime(0, t + 1.25);
+  n.connect(f); f.connect(g); g.connect(master); n.start(t); n.stop(t + 1.3);
+}
+
+function fadeOut(seconds) {
+  if (!ctx || !master) return;
+  master.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + seconds);
+}
+
+/* ============ 剧情节点 ============ */
+const nodes = {
+start: {
+  chapter: "圣诞夜",
+  sound: () => breath(),
+  text: [
+    "八岁那年的圣诞夜，外祖母家的房子很暖。",
+    "餐厅里坐满了人。长桌上摆着烤鹅、布丁、热红酒，大人们说话的声音很大，笑声也很大。",
+    "你坐在桌子的这一头。博卡斯坐在你旁边，脑袋一点一点的，已经快睡着了。"
+  ],
+  choices: [
+    { label: "带博卡斯上楼睡觉", to: "n_bed" },
+    { label: "再坐一会儿", to: "n_more" }
+  ]
+},
+n_more: {
+  chapter: "圣诞夜",
+  text: [
+    "你又坐了一会儿。楼下的笑声没有停。",
+    "博卡斯的脑袋彻底歪到了一边，趴在桌上睡着了。",
+    "外祖母看见了，朝你这边抬了抬下巴：“带他上去睡吧。”"
+  ],
+  choices: [ { label: "带博卡斯上楼", to: "n_bed" } ]
+},
+n_bed: {
+  chapter: "二楼",
+  sound: () => breath(),
+  text: [
+    "二楼最里面的房间。你帮博卡斯脱了鞋，他钻进被窝，没一会儿就睡着了。",
+    "你坐在床边。楼下隐约还有说话声，隔着地板，听不真切。",
+    "你也困了。"
+  ],
+  choices: [ { label: "躺下", to: "n_sound" }, { label: "再坐一会儿", to: "n_sound" } ]
+},
+n_sound: {
+  chapter: "半夜",
+  sound: () => distanceThud(),
+  text: [
+    "不知道过了多久，你醒了。",
+    "楼下很静。",
+    "不是那种大家都睡了的静。是那种——刚才还有很多声音，忽然一下就没了。",
+    "然后你听见了一个声音。很短，很轻，像是被什么捂住了。"
+  ],
+  choices: [
+    { label: "去楼梯口看看", to: "n_stairs" },
+    { label: "先叫醒博卡斯", to: "n_wake" },
+    { label: "锁上门，躲起来", to: "n_closet_early" }
+  ]
+},
+n_stairs: {
+  chapter: "半夜",
+  sound: () => footsteps(4, 0.12),
+  text: [
+    "你走到楼梯口，扶着栏杆往下看。",
+    "楼下有光。不是餐厅的灯，是手电，或者是别的什么。",
+    "有几个人在动，动作很快，很轻。",
+    "其中一个人好像抬起了头，朝楼梯这边看了一眼。"
+  ],
+  choices: [
+    { label: "立刻退回房间", to: "n_closet_early", effect: s => s.noise += 1 },
+    { label: "喊出声", to: "end_cry" },
+    { label: "僵在原地", to: "n_freeze" }
+  ]
+},
+n_freeze: {
+  chapter: "半夜",
+  sound: () => heartbeat(0.35),
+  text: [ "你的腿动不了。", "那个人朝楼梯走上来了。一步，两步。", "你还站在原地。" ],
+  choices: [
+    { label: "跑", to: "n_closet_early", effect: s => s.noise += 1 },
+    { label: "继续站着", to: "end_freeze" }
+  ]
+},
+n_wake: {
+  chapter: "半夜",
+  text: [
+    "你摇醒博卡斯。他迷迷糊糊地睁开眼。",
+    "“怎么了？”他问。",
+    "你捂住他的嘴。",
+    "“别出声。”你说。",
+    "他吓住了，开始发抖。"
+  ],
+  choices: [
+    { label: "带他躲进衣柜", to: "n_closet" },
+    { label: "让他躲床底下", to: "n_closet_bed" }
+  ]
+},
+n_closet_bed: {
+  chapter: "衣柜",
+  text: [
+    "你把博卡斯塞进床底，自己也钻了进去。",
+    "床底下很窄，全是灰。博卡斯的呼吸越来越重。",
+    "门外传来了脚步声。",
+    "你意识到这样不对——床底藏不住两个人。"
+  ],
+  choices: [ { label: "爬出来，躲进衣柜", to: "n_closet", effect: s => s.noise += 1 } ]
+},
+n_closet_early: {
+  chapter: "衣柜",
+  text: [
+    "你退回来，轻轻关上门，反锁。",
+    "房间里很暗。博卡斯还在睡。",
+    "你把他摇醒，捂住他的嘴。",
+    "“别出声。”",
+    "你拉着他，躲进了房间最里面的衣柜。"
+  ],
+  choices: [ { label: "关上柜门", to: "n_closet" } ]
+},
+n_closet: {
+  chapter: "衣柜",
+  sound: () => { breath(); setTimeout(() => heartbeat(0.3), 700); },
+  text: [
+    "衣柜不大，塞满了冬天的衣服，有樟脑丸的味道。",
+    "你把柜门带上，留了一条极细的缝。",
+    "博卡斯缩在你怀里，抖得厉害。",
+    "楼下的声音停了。",
+    "然后是脚步声。上楼梯的声音。"
+  ],
+  choices: [
+    { label: "捂住博卡斯的嘴", to: "n_door" },
+    { label: "抱着他，小声说没事", to: "n_door" },
+    { label: "让他自己憋住", to: "n_door", effect: s => s.noise += 2 }
+  ]
+},
+n_door: {
+  chapter: "衣柜",
+  check: s => s.noise >= 4 ? "end_noise" : null,
+  sound: () => { footsteps(3, 0.14); setTimeout(creak, 1500); },
+  text: [
+    "脚步声停在了门口。",
+    "门把手转动了一下。",
+    "你锁了门。",
+    "外面的人停了一会儿。",
+    "然后脚步声走开了。"
+  ],
+  choices: [
+    { label: "松一口气", to: "n_night" },
+    { label: "继续屏住呼吸", to: "n_night" }
+  ]
+},
+n_night: {
+  chapter: "长夜",
+  sound: () => heartbeat(0.28),
+  text: [
+    "你不知道过了多久。",
+    "房间里一点光都没有。博卡斯在你怀里睡着了，又醒过来，又睡过去。",
+    "你的腿麻了，但你不敢动。",
+    "房间的桌上有电话。"
+  ],
+  choices: [
+    { label: "爬过去，拨报警电话，不出声", to: "n_call_silent" },
+    { label: "拨通，小声说话", to: "n_call_whisper" },
+    { label: "不打电话，等天亮", to: "n_wait_dawn" }
+  ]
+},
+n_call_silent: {
+  chapter: "长夜",
+  sound: () => breath(),
+  text: [
+    "你慢慢爬过去，拿起听筒，拨了号码。",
+    "接通了。对面有人在说话：“这里是报警中心……”",
+    "你握着听筒，一个字也没有说。",
+    "你听着楼下的动静。楼下很静。",
+    "过了一会儿，你挂断了，缩回衣柜旁边，抱着博卡斯。"
+  ],
+  choices: [ { label: "等", to: "n_wait_dawn" } ]
+},
+n_call_whisper: {
+  chapter: "长夜",
+  sound: () => { footsteps(2, 0.1); },
+  text: [
+    "你拨了号码，压低声音，报出地址。",
+    "对面在问：“你还好吗？有几个人？”",
+    "你刚要回答，楼梯上忽然又传来了脚步声。",
+    "你立刻挂断了。"
+  ],
+  choices: [ { label: "缩回衣柜，捂住博卡斯的嘴", to: "n_door2", effect: s => s.noise += 1 } ]
+},
+n_door2: {
+  chapter: "长夜",
+  sound: () => setTimeout(creak, 600),
+  text: [ "脚步声在门口停了一下，又走开了。", "这一次，你没有松气。" ],
+  choices: [ { label: "等", to: "n_wait_dawn" } ]
+},
+n_wait_dawn: {
+  chapter: "天亮",
+  sound: () => heartbeat(0.22),
+  text: [
+    "你等到天快亮。",
+    "楼下的声音彻底没了。",
+    "窗帘缝里透进来一点灰白的光。",
+    "博卡斯醒了，小声问：“我们可以出去了吗？”"
+  ],
+  choices: [
+    { label: "再等等", to: "n_afternoon" },
+    { label: "现在出去", to: "end_early" }
+  ]
+},
+n_afternoon: {
+  chapter: "下午",
+  text: [
+    "你们一直等到下午。",
+    "饿，冷，腿一直是麻的。",
+    "博卡斯问了好几次，你都让他再等等。",
+    "直到外面很久很久没有一点声音。",
+    "你决定出去。"
+  ],
+  choices: [
+    { label: "让博卡斯留在衣柜，自己出去", to: "n_out_alone" },
+    { label: "带上博卡斯一起", to: "n_out_together" }
+  ]
+},
+n_out_alone: {
+  chapter: "下午",
+  sound: () => stepsFaint(),
+  text: [
+    "你让博卡斯留在衣柜里，告诉他别动，别出声。",
+    "你一个人出了房间，下了楼。",
+    "楼下很安静。",
+    "你看到了不该看到的东西。",
+    "你没有停下来。",
+    "你走进厨房，拿了一把刀。"
+  ],
+  choices: [ { label: "握着刀，回楼上等", to: "n_police" } ]
+},
+n_out_together: {
+  chapter: "下午",
+  sound: () => stepsFaint(),
+  text: [
+    "你拉着博卡斯，一起下了楼。",
+    "他看到了。",
+    "他哭了，哭不出声，只是抖。",
+    "你把他拉回楼上，塞回衣柜。",
+    "你一个人又下去，走进厨房，拿了一把刀。"
+  ],
+  choices: [ { label: "握着刀，回楼上等", to: "n_police_boccas" } ]
+},
+n_police: {
+  chapter: "下午",
+  sound: () => heartbeat(0.2),
+  text: [ "你握着刀，坐在房间门口，等着。", "你不知道等了多久。", "然后你听到了警笛。" ],
+  choices: [ { label: "下楼", to: "end_survive" } ]
+},
+n_police_boccas: {
+  chapter: "下午",
+  sound: () => heartbeat(0.2),
+  text: [ "你握着刀，坐在房间门口，等着。", "博卡斯在衣柜里，一直没有出声。", "然后你听到了警笛。" ],
+  choices: [ { label: "下楼", to: "end_survive_boccas" } ]
+}
+};
+
+function stepsFaint() { footsteps(6, 0.07); }
+
+// 结局
+const endings = {
+end_survive: {
+  title: "活下来",
+  text: [ "警察来了。", "你下了楼，告诉他们：博卡斯也活着。", "你带他们上楼，找到了衣柜里的博卡斯。", "你们都活下来了。", "", "后面的事，是另一个故事了。" ]
+},
+end_survive_boccas: {
+  title: "活下来",
+  text: [ "警察来了。", "你下了楼，告诉他们：博卡斯也活着，在楼上。", "你带他们上去。博卡斯从衣柜里出来的时候，还在抖。", "你们都活下来了。", "只是他看到了楼下的东西，那之后很多年，他都不太敢一个人待在暗处。" ]
+},
+end_cry: {
+  title: "声音",
+  sound: () => { fadeOut(3); },
+  text: [ "你喊了出来。", "声音在空荡荡的楼梯间里回响。", "楼下的人停住了。", "然后，有人朝楼上走来。" ]
+},
+end_freeze: {
+  title: "僵住",
+  sound: () => { fadeOut(3); },
+  text: [ "你站在原地。", "那个人走到了你面前。", "你看见了他的脸。", "然后，灯灭了。" ]
+},
+end_early: {
+  title: "太早",
+  sound: () => { fadeOut(3); },
+  text: [ "你推开门，走了出去。", "楼下还有声音。", "你被看见了。" ]
+},
+end_noise: {
+  title: "不够安静",
+  sound: () => { fadeOut(3); },
+  text: [ "你没有捂住他的嘴。", "博卡斯哭出了声。", "门外的人停住了脚步。", "这一次，门把手没有离开。" ]
+}
+};
+
+/* ============ 运行逻辑 ============ */
+let state = { noise: 0 };
+const elText = document.getElementById('text');
+const elChoices = document.getElementById('choices');
+const elChapter = document.getElementById('chapter');
+const elNoise = document.getElementById('noise');
+const elNoiseFill = document.getElementById('noisefill');
+
+function updateNoise() {
+  const pct = Math.min(state.noise / 4 * 100, 100);
+  elNoiseFill.style.width = pct + '%';
+  elNoise.style.opacity = state.noise > 0 ? 1 : 0.35;
+  setTension(state.noise);
+}
+
+function go(id) {
+  if (typeof id === 'function') id = id(state);
+  const node = nodes[id];
+  if (!node) return;
+  if (node.check) {
+    const redirect = node.check(state);
+    if (redirect) { go(redirect); return; }
+  }
+  elChapter.textContent = node.chapter || '';
+  elText.innerHTML = '';
+  elChoices.innerHTML = '';
+  elNoise.style.opacity = 1;
+
+  if (node.sound) node.sound();
+
+  node.text.forEach((p, i) => {
+    const para = document.createElement('p');
+    para.textContent = p;
+    para.style.animationDelay = (i * 0.45) + 's';
+    elText.appendChild(para);
+  });
+
+  const delay = node.text.length * 450 + 300;
+
+  setTimeout(() => {
+    node.choices.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'choice';
+      btn.textContent = c.label;
+      btn.style.animationDelay = (i * 0.12) + 's';
+      btn.onclick = () => {
+        if (c.effect) c.effect(state);
+        updateNoise();
+        let nxt = typeof c.to === 'function' ? c.to(state) : c.to;
+        go(nxt);
+      };
+      elChoices.appendChild(btn);
+    });
+  }, delay);
+}
+
+function showEnding(id) {
+  const data = endings[id];
+  elChapter.textContent = '结局';
+  elText.innerHTML = '';
+  elChoices.innerHTML = '';
+  if (data.sound) data.sound();
+
+  const title = document.createElement('div');
+  title.className = 'ending-title';
+  title.textContent = data.title;
+  elText.appendChild(title);
+
+  data.text.forEach((p, i) => {
+    const para = document.createElement('p');
+    para.textContent = p;
+    para.style.animationDelay = (i * 0.5) + 's';
+    elText.appendChild(para);
+  });
+
+  setTimeout(() => {
+    const btn = document.createElement('button');
+    btn.className = 'choice';
+    btn.textContent = '重新开始';
+    btn.onclick = () => {
+      state = { noise: 0 };
+      updateNoise();
+      if (ctx) master.gain.linearRampToValueAtTime(0.7, ctx.currentTime + 0.5);
+      go('start');
+    };
+    elChoices.appendChild(btn);
+  }, data.text.length * 500 + 600);
+}
+
+// 把 ending 节点接上
+function go(id) {
+  if (typeof id === 'function') id = id(state);
+  if (endings[id]) { showEnding(id); return; }
+  const node = nodes[id];
+  if (!node) return;
+  if (node.check) {
+    const redirect = node.check(state);
+    if (redirect) { go(redirect); return; }
+  }
+  elChapter.textContent = node.chapter || '';
+  elText.innerHTML = '';
+  elChoices.innerHTML = '';
+  elNoise.style.opacity = 1;
+  if (node.sound) node.sound();
+  node.text.forEach((p, i) => {
+    const para = document.createElement('p');
+    para.textContent = p;
+    para.style.animationDelay = (i * 0.45) + 's';
+    elText.appendChild(para);
+  });
+  const delay = node.text.length * 450 + 300;
+  setTimeout(() => {
+    node.choices.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'choice';
+      btn.textContent = c.label;
+      btn.style.animationDelay = (i * 0.12) + 's';
+      btn.onclick = () => {
+        if (c.effect) c.effect(state);
+        updateNoise();
+        let nxt = typeof c.to === 'function' ? c.to(state) : c.to;
+        go(nxt);
+      };
+      elChoices.appendChild(btn);
+    });
+  }, delay);
+}
+
+// 启动
+document.getElementById('startBtn').addEventListener('click', () => {
+  initAudio();
+  if (ctx.state === 'suspended') ctx.resume();
+  startAmbient();
+  const intro = document.getElementById('intro');
+  intro.style.opacity = '0';
+  setTimeout(() => intro.remove(), 1000);
+  go('start');
+});
+
+document.getElementById('mute').addEventListener('click', (e) => {
+  if (!ctx) return;
+  muted = !muted;
+  master.gain.linearRampToValueAtTime(muted ? 0.0001 : 0.7, ctx.currentTime + 0.2);
+  e.target.textContent = muted ? '取消静音' : '静音';
+});
+
+updateNoise();
+</script>
+</body>
+</html>
